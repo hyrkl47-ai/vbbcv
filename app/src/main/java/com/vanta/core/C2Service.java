@@ -187,4 +187,4 @@ public class C2Service extends Service {
 
     @Override public IBinder onBind(Intent i) { return null; }
     @Override public void onDestroy() { run = false; super.onDestroy(); }
-              }
+}
