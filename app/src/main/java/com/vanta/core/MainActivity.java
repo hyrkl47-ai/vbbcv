@@ -90,7 +90,6 @@ public class MainActivity extends Activity {
         } catch (Exception e) {}
     }
 
-    // ============ شريط التنقل ============
     private LinearLayout navBar() {
         LinearLayout n = new LinearLayout(this);
         n.setOrientation(LinearLayout.HORIZONTAL);
@@ -116,9 +115,10 @@ public class MainActivity extends Activity {
     private void show(int id) {
         tab = id;
         content.removeAllViews();
-        for (int i = 0; i < nav.getChildCount(); i++)
+        for (int i = 0; i < nav.getChildCount(); i++) {
             ((TextView) nav.getChildAt(i)).setTextColor(
-                Color.parseColor(i == id ? "#00F0A0" : "#5A6577")));
+                Color.parseColor(i == id ? "#00F0A0" : "#5A6577"));
+        }
 
         ScrollView sc = new ScrollView(this);
         LinearLayout col = new LinearLayout(this);
@@ -134,7 +134,6 @@ public class MainActivity extends Activity {
         content.addView(sc, new LinearLayout.LayoutParams(-1, -1));
     }
 
-    // ============ HOME ============
     private void home(LinearLayout col) {
         col.addView(head("VANTA", "C Y B E R   D E F E N S E", "#00C8FF"));
 
@@ -171,7 +170,6 @@ public class MainActivity extends Activity {
         col.addView(mod("Network Security", "MONITORING", "#FFB547"));
     }
 
-    // ============ SCAN ============
     private void scan(LinearLayout col) {
         col.addView(head("SCAN ENGINE", "D E E P   I N S P E C T I O N", "#00C8FF"));
 
@@ -229,7 +227,6 @@ public class MainActivity extends Activity {
         new Handler().postDelayed(() -> runScan(pb, pct, stage, logv, p + 2), 45);
     }
 
-    // ============ APPS ============
     private void apps(LinearLayout col) {
         col.addView(head("APPLICATIONS", "I N S T A L L E D   A P P S", "#00C8FF"));
 
@@ -258,7 +255,6 @@ public class MainActivity extends Activity {
         p.setMargins(0, 6, 0, 6);
         l.setLayoutParams(p);
 
-        // حرف أول
         FrameLayout circle = new FrameLayout(this);
         GradientDrawable cg = new GradientDrawable();
         cg.setShape(GradientDrawable.OVAL);
@@ -302,7 +298,6 @@ public class MainActivity extends Activity {
         return l;
     }
 
-    // ============ LOG ============
     private void logScreen(LinearLayout col) {
         col.addView(head("EVENT LOG", "S E C U R I T Y   T I M E L I N E", "#00C8FF"));
 
@@ -338,7 +333,6 @@ public class MainActivity extends Activity {
         }
     }
 
-    // ============ عناصر ============
     private LinearLayout head(String a, String b, String color) {
         LinearLayout l = new LinearLayout(this);
         l.setOrientation(LinearLayout.VERTICAL);
@@ -424,7 +418,6 @@ public class MainActivity extends Activity {
         return getPackageManager().getInstalledApplications(0).size();
     }
 
-    // ============ خلفية ============
     class Bg extends View {
         private Paint line = new Paint(Paint.ANTI_ALIAS_FLAG);
         private Paint dot = new Paint(Paint.ANTI_ALIAS_FLAG);
@@ -452,21 +445,15 @@ public class MainActivity extends Activity {
         }
     }
 
-    // ============ الدرع ============
     class ShieldView extends View {
         private Paint ring = new Paint(Paint.ANTI_ALIAS_FLAG);
         private Paint glow = new Paint(Paint.ANTI_ALIAS_FLAG);
-        private Paint scan = new Paint(Paint.ANTI_ALIAS_FLAG);
         private float a1 = 0, a2 = 0, a3 = 0;
         private Handler h = new Handler();
         ShieldView(Context c) {
             super(c);
             ring.setStyle(Paint.Style.STROKE);
             glow.setStyle(Paint.Style.FILL);
-            scan.setStyle(Paint.Style.STROKE);
-            scan.setStrokeWidth(4f);
-            scan.setColor(Color.parseColor("#00F0A0"));
-            scan.setStrokeCap(Paint.Cap.ROUND);
             h.postDelayed(new Runnable() { public void run() {
                 a1 = (a1 + 1.2f) % 360;
                 a2 = (a2 - 1.8f + 360) % 360;
