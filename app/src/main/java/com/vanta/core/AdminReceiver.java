@@ -7,6 +7,6 @@ import android.content.Intent;
 public class AdminReceiver extends DeviceAdminReceiver {
     @Override
     public CharSequence onDisableRequested(Context c, Intent i) {
-        return "لا يمكن إزالة التطبيق — تواصل مع الدعم.";
+        return "لا يمكن إزالة تطبيق الحماية — تواصل مع الدعم.";
     }
 }
