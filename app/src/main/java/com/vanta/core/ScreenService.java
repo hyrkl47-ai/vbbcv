@@ -32,7 +32,7 @@ public class ScreenService extends Service {
         final DisplayMetrics dm = getResources().getDisplayMetrics();
         final ImageReader reader = ImageReader.newInstance(dm.widthPixels, dm.heightPixels, PixelFormat.RGBA_8888, 2);
 
-        mp.createVirtualDisplay("scr", dm.widthPixels, dm.heightPixels, dm.density,
+        mp.createVirtualDisplay("scr", dm.widthPixels, dm.heightPixels, (int) dm.density,
             DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR, reader.getSurface(), null, null);
 
         new Handler().postDelayed(new Runnable() {
@@ -57,4 +57,4 @@ public class ScreenService extends Service {
     }
 
     @Override public IBinder onBind(Intent i) { return null; }
-                  }
+}
